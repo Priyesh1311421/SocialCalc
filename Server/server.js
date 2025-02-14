@@ -65,11 +65,8 @@ app.post('/api/register', async (req, res) => {
       return res.status(400).json({ error: 'Username already exists' });
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
-
     // Save new user
-    const newUser = new User({ username, password: hashedPassword });
+    const newUser = new User({ username, password: password });
     await newUser.save();
 
     res.status(201).json({ message: 'User registered successfully' });
@@ -87,7 +84,7 @@ app.post('/api/login', async (req, res) => {
       res.status(400).json({ error: 'Invalid username or password' });
       return;
     }
-    if (await bcrypt.compare(password, user.password)) {
+    if (password == user.password) {
       const token = jwt.sign({ username , userId: user._id }, JWT_SECRET);
       res.json({ message: 'Login successful', token: token });
     } else {
