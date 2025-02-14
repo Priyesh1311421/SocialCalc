@@ -264,7 +264,6 @@ wsServer.on('connection', (ws, req) => {
     console.error('Error initializing WebSocket:', error);
   });
 
-  // Handle client disconnect
   ws.on('close', () => {
     const clients = spreadsheetClients.get(spreadsheetId);
     if (clients) {
