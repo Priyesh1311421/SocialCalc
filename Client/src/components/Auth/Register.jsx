@@ -19,6 +19,7 @@ const UserRegistration = () => {
 
     } catch (error) {
       toast.error('Failed to register user');
+      console.log(error)
     }
   };
 
@@ -32,7 +33,7 @@ const UserRegistration = () => {
           <div className="mb-4">
             <label className="block text-gray-700 text-sm font-bold mb-2">Username:</label>
             <input
-              type="email"
+              type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder='Enter username(Email)'

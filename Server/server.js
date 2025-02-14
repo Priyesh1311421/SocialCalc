@@ -13,7 +13,7 @@ app.use(express.json());
 app.use(cors());
 
 
-mongoose.connect('')
+mongoose.connect('mongodb+srv://kirags123:8qPEa8KTKBEh2bss@cluster0.f3qlbuo.mongodb.net/spreadsheetApp')
   .then(() => {  console.log('Connected to MongoDB'); }).catch((error) => { console.error('Error connecting to MongoDB:', error); });
 
 const rowLength = 999;
@@ -58,17 +58,24 @@ const authUser = async (req, res, next) => {
 app.post('/api/register', async (req, res) => {
   try {
     const { username, password } = req.body;
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await User.findOne({ username });
-    if (user) {
-      res.status(400).json({ error: 'Username already exists' });
-      return;
+
+    // Check if user already exists before hashing password
+    const existingUser = await User.findOne({ username });
+    if (existingUser) {
+      return res.status(400).json({ error: 'Username already exists' });
     }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Save new user
     const newUser = new User({ username, password: hashedPassword });
     await newUser.save();
-    res.json({ message: 'User registered successfully' });
+
+    res.status(201).json({ message: 'User registered successfully' });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to register user' });
+    console.error('Error in registration:', error.message);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
@@ -210,10 +217,20 @@ app.post('/api/spreadsheet/:id', async (req, res) => {
 const server = http.createServer(app);
 const wsServer = new WebSocketServer({ server });
 
+const spreadsheetClients = new Map(); // Store clients per spreadsheet
+
 wsServer.on('connection', (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const spreadsheetId = url.searchParams.get('spreadsheetId');
   const clientId = url.searchParams.get('clientId');
+
+  if (!spreadsheetClients.has(spreadsheetId)) {
+    spreadsheetClients.set(spreadsheetId, new Set());
+  }
+  spreadsheetClients.get(spreadsheetId).add(ws);
+
+  console.log(`Client ${clientId} connected to spreadsheet ${spreadsheetId}`);
+  console.log(`Connected users for ${spreadsheetId}:`, spreadsheetClients.get(spreadsheetId).size);
 
   ws.on('message', (message) => {
     const { type, row, col, value } = JSON.parse(message);
@@ -223,7 +240,7 @@ wsServer.on('connection', (ws, req) => {
         if (cellData) {
           cellData.cells[row][col] = value;
           cellData.save().then(() => {
-            wsServer.clients.forEach((client) => {
+            spreadsheetClients.get(spreadsheetId).forEach((client) => {
               if (client !== ws && client.readyState === WebSocket.OPEN) {
                 client.send(JSON.stringify({ type: 'update', id: spreadsheetId, cells: cellData.cells }));
               }
@@ -235,7 +252,7 @@ wsServer.on('connection', (ws, req) => {
       });
     } else if (type === 'select') {
       const selectedCell = { row, col };
-      wsServer.clients.forEach((client) => {
+      spreadsheetClients.get(spreadsheetId).forEach((client) => {
         if (client !== ws && client.readyState === WebSocket.OPEN) {
           client.send(JSON.stringify({ type: 'select', id: spreadsheetId, selectedCell }));
         }
@@ -243,12 +260,24 @@ wsServer.on('connection', (ws, req) => {
     }
   });
 
+  // Send initial spreadsheet data
   Cell.findById(spreadsheetId).then((cellData) => {
-    ws.send(
-      JSON.stringify({ type: 'init', id: spreadsheetId, cells: cellData ? cellData.cells : 'Spreadsheet not found' })
-    );
+    ws.send(JSON.stringify({ type: 'init', id: spreadsheetId, cells: cellData ? cellData.cells : 'Spreadsheet not found' }));
   }).catch((error) => {
     console.error('Error initializing WebSocket:', error);
+  });
+
+  // Handle client disconnect
+  ws.on('close', () => {
+    const clients = spreadsheetClients.get(spreadsheetId);
+    if (clients) {
+      clients.delete(ws);
+      if (clients.size === 0) {
+        spreadsheetClients.delete(spreadsheetId);
+      }
+    }
+    console.log(`Client ${clientId} disconnected from spreadsheet ${spreadsheetId}`);
+    console.log(`Remaining users for ${spreadsheetId}:`, spreadsheetClients.get(spreadsheetId)?.size || 0);
   });
 });
 
